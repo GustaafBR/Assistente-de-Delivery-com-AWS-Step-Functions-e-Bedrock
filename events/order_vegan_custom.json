@@ -1,0 +1,26 @@
+{
+  "order_id": "ORD-2026-5531",
+  "customer": {
+    "id": "CUST-891",
+    "name": "Lucas Alencar",
+    "phone": "+5521977776666",
+    "address": "Rua Visconde de Pirajá, 300 - Ipanema, Rio de Janeiro - RJ"
+  },
+  "coupon_code": "BEDROCK15",
+  "items": [
+    {
+      "item_id": "ITM-10",
+      "name": "Pizza Individual Cogumelos com Queijo de Castanhas",
+      "quantity": 1,
+      "price": 54.00
+    },
+    {
+      "item_id": "ITM-11",
+      "name": "Suco Prensado a Frio de Maçã, Couve e Gengibre 500ml",
+      "quantity": 1,
+      "price": 16.00
+    }
+  ],
+  "payment_method": "PIX",
+  "special_instructions": "Alérgico severo a leite e derivados. Totalmente sem lactose e sem contato cruzado com queijo tradicional."
+}

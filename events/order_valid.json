@@ -1,0 +1,32 @@
+{
+  "order_id": "ORD-2026-9812",
+  "customer": {
+    "id": "CUST-442",
+    "name": "Mariana Souza",
+    "phone": "+5511988887777",
+    "address": "Av. Paulista, 1578 - Bela Vista, São Paulo - SP"
+  },
+  "coupon_code": "BEMVINDO10",
+  "items": [
+    {
+      "item_id": "ITM-01",
+      "name": "Burger Artesanal Angus Bacon",
+      "quantity": 2,
+      "price": 38.50
+    },
+    {
+      "item_id": "ITM-02",
+      "name": "Batata Rústica com Alecrim",
+      "quantity": 1,
+      "price": 18.00
+    },
+    {
+      "item_id": "ITM-03",
+      "name": "Refrigerante Cola Lata 350ml",
+      "quantity": 2,
+      "price": 7.00
+    }
+  ],
+  "payment_method": "CREDIT_CARD",
+  "special_instructions": "Por favor, enviar bacon bem crocante e maionese à parte."
+}

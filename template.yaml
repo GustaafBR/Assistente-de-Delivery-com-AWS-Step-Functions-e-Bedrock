@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Assistente de Delivery Inteligente orquestrado com AWS Step Functions e Amazon Bedrock
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: python3.12
+    Environment:
+      Variables:
+        AWS_REGION: !Ref AWS::Region
+        BEDROCK_MODEL_ID: !Ref BedrockModelId
+
+Parameters:
+  BedrockModelId:
+    Type: String
+    Default: 'anthropic.claude-3-haiku-20240307-v1:0'
+    Description: 'ID do modelo fundacional do Amazon Bedrock'
+
+Resources:
+  # ------------------------------------------------------------
+  # Tópico SNS para Notificações de Pedido
+  # ------------------------------------------------------------
+  OrderNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${AWS::StackName}-OrderNotifications'
+
+  # ------------------------------------------------------------
+  # Funções Lambda do Fluxo
+  # ------------------------------------------------------------
+  ValidateOrderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/validate_order/
+      Handler: lambda_function.lambda_handler
+      Description: Valida integridade e campos obrigatórios do pedido
+
+  BedrockHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/bedrock_handler/
+      Handler: lambda_function.lambda_handler
+      Description: Invoca o Amazon Bedrock para análise de preferências e geração de mensagens
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+
+  PricingEngineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/pricing_engine/
+      Handler: lambda_function.lambda_handler
+      Description: Calcula subtotal, frete dinâmico e descontos
+
+  PaymentProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/payment_processor/
+      Handler: lambda_function.lambda_handler
+      Description: Processa autorização e captura de pagamento
+
+  DeliveryDispatcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/delivery_dispatcher/
+      Handler: lambda_function.lambda_handler
+      Description: Aloca entregador e calcula ETA de entrega
+
+  NotificationSenderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/notification_sender/
+      Handler: lambda_function.lambda_handler
+      Description: Envia notificação ao cliente via SNS / canais digitais
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN: !Ref OrderNotificationsTopic
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt OrderNotificationsTopic.TopicName
+
+  # ------------------------------------------------------------
+  # State Machine (AWS Step Functions)
+  # ------------------------------------------------------------
+  DeliveryAssistantStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      DefinitionUri: statemachine/delivery_assistant.asl.json
+      DefinitionSubstitutions:
+        ValidateOrderFunctionArn: !GetAtt ValidateOrderFunction.Arn
+        BedrockHandlerFunctionArn: !GetAtt BedrockHandlerFunction.Arn
+        PricingEngineFunctionArn: !GetAtt PricingEngineFunction.Arn
+        PaymentProcessorFunctionArn: !GetAtt PaymentProcessorFunction.Arn
+        DeliveryDispatcherFunctionArn: !GetAtt DeliveryDispatcherFunction.Arn
+        NotificationSenderFunctionArn: !GetAtt NotificationSenderFunction.Arn
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref ValidateOrderFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BedrockHandlerFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PricingEngineFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PaymentProcessorFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref DeliveryDispatcherFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref NotificationSenderFunction
+
+Outputs:
+  StateMachineArn:
+    Description: 'ARN da State Machine do Assistente de Delivery'
+    Value: !Ref DeliveryAssistantStateMachine
+  OrderNotificationsTopicArn:
+    Description: 'ARN do tópico SNS de notificações'
+    Value: !Ref OrderNotificationsTopic

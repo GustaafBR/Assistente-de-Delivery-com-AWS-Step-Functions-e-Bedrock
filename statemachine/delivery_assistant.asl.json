@@ -1,0 +1,230 @@
+{
+  "Comment": "Assistente de Delivery Inteligente orquestrado com AWS Step Functions e Amazon Bedrock",
+  "StartAt": "ValidateOrder",
+  "States": {
+    "ValidateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ValidateOrderFunctionArn}",
+        "Payload": {
+          "order.$": "$"
+        }
+      },
+      "ResultSelector": {
+        "isValid.$": "$.Payload.is_valid",
+        "orderId.$": "$.Payload.order_id",
+        "customer.$": "$.Payload.customer",
+        "items.$": "$.Payload.items",
+        "deliveryAddress.$": "$.Payload.delivery_address",
+        "paymentMethod.$": "$.Payload.payment_method",
+        "specialInstructions.$": "$.Payload.special_instructions",
+        "errors.$": "$.Payload.errors"
+      },
+      "ResultPath": "$.validationResult",
+      "Next": "CheckOrderValidity",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ]
+    },
+    "CheckOrderValidity": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.validationResult.isValid",
+          "BooleanEquals": true,
+          "Next": "ParallelProcessingAIAndPricing"
+        }
+      ],
+      "Default": "FailInvalidOrder"
+    },
+    "FailInvalidOrder": {
+      "Type": "Fail",
+      "Error": "OrderValidationFailed",
+      "Cause": "O pedido contém dados inválidos ou incompletos."
+    },
+    "ParallelProcessingAIAndPricing": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "BedrockDietaryAndUpsell",
+          "States": {
+            "BedrockDietaryAndUpsell": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${BedrockHandlerFunctionArn}",
+                "Payload": {
+                  "action": "analyze_preferences",
+                  "customer.$": "$.validationResult.customer",
+                  "items.$": "$.validationResult.items",
+                  "special_instructions.$": "$.validationResult.specialInstructions"
+                }
+              },
+              "ResultSelector": {
+                "aiInsights.$": "$.Payload.ai_insights"
+              },
+              "End": true,
+              "Retry": [
+                {
+                  "ErrorEquals": ["Bedrock.ThrottlingException", "Lambda.ServiceException"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ]
+            }
+          }
+        },
+        {
+          "StartAt": "CalculatePricing",
+          "States": {
+            "CalculatePricing": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${PricingEngineFunctionArn}",
+                "Payload": {
+                  "items.$": "$.validationResult.items",
+                  "coupon_code.$": "$.coupon_code"
+                }
+              },
+              "ResultSelector": {
+                "pricing.$": "$.Payload.pricing"
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.parallelResults",
+      "Next": "ConsolidateOrderData"
+    },
+    "ConsolidateOrderData": {
+      "Type": "Pass",
+      "Parameters": {
+        "order_id.$": "$.validationResult.orderId",
+        "customer.$": "$.validationResult.customer",
+        "items.$": "$.validationResult.items",
+        "delivery_address.$": "$.validationResult.deliveryAddress",
+        "payment_method.$": "$.validationResult.paymentMethod",
+        "ai_insights.$": "$.parallelResults[0].aiInsights",
+        "pricing.$": "$.parallelResults[1].pricing"
+      },
+      "Next": "ProcessPayment"
+    },
+    "ProcessPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${PaymentProcessorFunctionArn}",
+        "Payload": {
+          "order_id.$": "$.order_id",
+          "pricing.$": "$.pricing",
+          "payment_method.$": "$.payment_method"
+        }
+      },
+      "ResultSelector": {
+        "isPaid.$": "$.Payload.is_paid",
+        "transactionId.$": "$.Payload.transaction_id",
+        "amountPaid.$": "$.Payload.amount_paid",
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.paymentResult",
+      "Next": "CheckPaymentSuccess"
+    },
+    "CheckPaymentSuccess": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.paymentResult.isPaid",
+          "BooleanEquals": true,
+          "Next": "DispatchDelivery"
+        }
+      ],
+      "Default": "FailPayment"
+    },
+    "FailPayment": {
+      "Type": "Fail",
+      "Error": "PaymentDeclined",
+      "Cause": "O pagamento não foi autorizado pelo emissor ou método inválido."
+    },
+    "DispatchDelivery": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${DeliveryDispatcherFunctionArn}",
+        "Payload": {
+          "order_id.$": "$.order_id",
+          "delivery_address.$": "$.delivery_address"
+        }
+      },
+      "ResultSelector": {
+        "dispatchInfo.$": "$.Payload.dispatch"
+      },
+      "ResultPath": "$.dispatchResult",
+      "Next": "GenerateBedrockNotification"
+    },
+    "GenerateBedrockNotification": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${BedrockHandlerFunctionArn}",
+        "Payload": {
+          "action": "generate_notification",
+          "customer.$": "$.customer",
+          "order_id.$": "$.order_id",
+          "items.$": "$.items",
+          "eta_minutes.$": "$.dispatchResult.dispatchInfo.eta_minutes",
+          "delivery_address.$": "$.delivery_address"
+        }
+      },
+      "ResultSelector": {
+        "notificationMessage.$": "$.Payload.notification_message"
+      },
+      "ResultPath": "$.aiNotification",
+      "Next": "SendCustomerNotification"
+    },
+    "SendCustomerNotification": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${NotificationSenderFunctionArn}",
+        "Payload": {
+          "order_id.$": "$.order_id",
+          "customer.$": "$.customer",
+          "notification_message.$": "$.aiNotification.notificationMessage",
+          "dispatch.$": "$.dispatchResult.dispatchInfo"
+        }
+      },
+      "ResultSelector": {
+        "deliveryReport.$": "$.Payload.delivery_report"
+      },
+      "ResultPath": "$.notificationResult",
+      "Next": "OrderSuccessSummary"
+    },
+    "OrderSuccessSummary": {
+      "Type": "Pass",
+      "Parameters": {
+        "status": "COMPLETED",
+        "order_id.$": "$.order_id",
+        "customer.$": "$.customer",
+        "pricing.$": "$.pricing",
+        "payment.$": "$.paymentResult",
+        "ai_insights.$": "$.ai_insights",
+        "dispatch.$": "$.dispatchResult.dispatchInfo",
+        "notification.$": "$.notificationResult.deliveryReport"
+      },
+      "End": true
+    }
+  }
+}

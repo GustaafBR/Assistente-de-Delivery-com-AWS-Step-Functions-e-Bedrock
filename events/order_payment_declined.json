@@ -1,0 +1,20 @@
+{
+  "order_id": "ORD-2026-0044",
+  "customer": {
+    "id": "CUST-109",
+    "name": "Rodrigo Ramos",
+    "phone": "+5531966665555",
+    "address": "Av. Afonso Pena, 1000 - Centro, Belo Horizonte - MG"
+  },
+  "coupon_code": "",
+  "items": [
+    {
+      "item_id": "ITM-99",
+      "name": "Combo Sushi Especial 30 Peças",
+      "quantity": 1,
+      "price": 120.00
+    }
+  ],
+  "payment_method": "INVALID_CARD",
+  "special_instructions": "Entregar na portaria."
+}
